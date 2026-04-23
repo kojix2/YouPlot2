@@ -1,0 +1,19 @@
+name: youplot2
+version: 0.0.0
+
+authors:
+  - kojix2 <2xijok@gmail.com>
+
+targets:
+  youplot2:
+    main: src/uplot2.cr
+  uplot2:
+    main: src/uplot2.cr
+
+dependencies:
+  unicode_plot:
+    github: crystal-data/unicode_plot.cr
+
+crystal: '>= 1.20.0'
+
+license: MIT
