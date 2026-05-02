@@ -61,12 +61,17 @@ module YouPlot2
 
     private def setup
       self.banner = BANNER
+      self.summary_width = 23
 
       add_common_options(self)
       add_subcommands
 
       on("--help", "print help") do
-        puts self
+        if @command
+          puts self
+        else
+          show_main_help
+        end
         exit
       end
 
