@@ -9,7 +9,7 @@
 Download the binary from the [GitHub Releases](https://github.com/red-data-tools/YouPlot2/releases).
 
 - Provides prebuilt portable binaries.
-- Uses statically linked builds on Linux and Windows where possible.
+- Uses statically linked builds on Linux and Windows.
 - Provides portable precompiled executables on macOS.
 - Intended to work in environments where additional dependencies are hard to install.
 
