@@ -1,4 +1,7 @@
-require "option_parser"
+# TODO; use stdlib option parser when
+# https://github.com/crystal-lang/crystal/pull/16914
+# is resolved and released.
+require "../ext/option_parser"
 
 module YouPlot2
   class Parser < OptionParser
