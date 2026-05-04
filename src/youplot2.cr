@@ -1,4 +1,5 @@
 require "unicode_plot"
+require "./ext/unicode_plot"
 
 require "./youplot2/data"
 require "./youplot2/parameters"

@@ -385,6 +385,7 @@ module YouPlot2
     end
 
     # Parses the passed *args* (defaults to `ARGV`), running the handlers associated to each option.
+    # ameba:disable Metrics/CyclomaticComplexity
     def parse(args = ARGV) : Nil
       with_preserved_state do
         # List of indexes in `args` which have been handled and must be deleted
@@ -448,15 +449,17 @@ module YouPlot2
         end
 
         # We consider any remaining arguments which start with '-' to be invalid
-        args.each_with_index do |arg, index|
+        args.each_with_index do |remaining_arg, index|
           break if double_dash_index && index >= double_dash_index
 
-          if arg.starts_with?('-') && arg != "-"
-            @invalid_option.call(arg)
+          if remaining_arg.starts_with?('-') && remaining_arg != "-"
+            @invalid_option.call(remaining_arg)
           end
         end
       end
     end
+
+    # ameba:enable Metrics/CyclomaticComplexity
 
     private def short_arg?(arg : String) : Bool
       arg.starts_with?('-') && !arg.starts_with?("--") && arg.size > 2

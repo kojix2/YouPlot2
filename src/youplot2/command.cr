@@ -10,6 +10,12 @@ module YouPlot2
       @options = Options.new
       @command = nil
       @data = nil
+      @progressive_initialized = false
+      @progressive_headers = nil
+      @progressive_series = [] of Array(String?)
+      @progressive_header_consumed = false
+      @progressive_row_count = 0
+      @progressive_current_input = nil.as(IO?)
     end
 
     def run
@@ -18,6 +24,7 @@ module YouPlot2
 
       @command = parser.command
       cmd = @command
+      input_files = parser.input_files
 
       if cmd.nil?
         parser.show_main_help(STDERR)
@@ -30,8 +37,12 @@ module YouPlot2
         return
       end
 
+      if options.progressive?
+        process_progressive_input(input_files, cmd)
+        return
+      end
+
       # Read from files given on the command line, or from stdin
-      input_files = parser.input_files
       if input_files.empty?
         process_input(STDIN.gets_to_end, cmd)
       else
@@ -56,6 +67,211 @@ module YouPlot2
 
       plot = create_plot(cmd)
       output_plot(plot)
+    end
+
+    private def process_progressive_input(input_files : Array(String), cmd : String)
+      previous_lines = 0
+      cursor_hidden = false
+
+      if options.output_path
+        STDERR.puts "YouPlot2: In progressive mode, output to a file is not possible."
+        exit 1
+      end
+
+      exit_reason = nil.as(Process::ExitReason?)
+      Process.on_terminate do |reason|
+        exit_reason = reason
+        close_progressive_input(@progressive_current_input)
+      end
+
+      output_io.print "\e[?25l"
+      cursor_hidden = true
+
+      previous_lines = read_progressive_inputs(input_files, cmd, previous_lines) { !!exit_reason }
+
+      sanitize_progressive_output(previous_lines, cursor_hidden)
+      cursor_hidden = false
+      if reason = exit_reason
+        exit progressive_exit_code(reason)
+      end
+    ensure
+      sanitize_progressive_output(previous_lines || 0, cursor_hidden) if cursor_hidden
+      @progressive_current_input = nil
+      Process.restore_interrupts!
+    end
+
+    private def read_progressive_inputs(input_files : Array(String), cmd : String,
+                                        previous_lines : Int32, &stop : -> Bool) : Int32
+      if input_files.empty?
+        return read_progressive_io(STDIN, cmd, previous_lines, stop)
+      end
+
+      input_files.each do |path|
+        break if stop.call
+
+        begin
+          File.open(path) do |file|
+            previous_lines = read_progressive_io(file, cmd, previous_lines, stop)
+          end
+        rescue ex : File::NotFoundError
+          STDERR.puts ex.message
+        end
+      end
+
+      previous_lines
+    end
+
+    private def read_progressive_io(io : IO, cmd : String,
+                                    previous_lines : Int32, stop : -> Bool) : Int32
+      @progressive_current_input = io
+      io.each_line(chomp: false) do |line|
+        break if stop.call
+        previous_lines = process_progressive_line(line, cmd, previous_lines)
+      end
+
+      previous_lines
+    rescue ex : IO::Error
+      raise ex unless stop.call
+      previous_lines
+    ensure
+      @progressive_current_input = nil
+    end
+
+    private def progressive_exit_code(reason : Process::ExitReason) : Int32
+      case reason
+      when .interrupted?
+        130
+      when .session_ended?
+        143
+      when .terminal_disconnected?
+        129
+      else
+        1
+      end
+    end
+
+    private def close_progressive_input(input : IO?) : Nil
+      return unless input
+      input.close unless input.closed?
+    rescue
+      # The signal may arrive while the stream is already closing.
+    end
+
+    private def process_progressive_line(input : String, cmd : String, previous_lines : Int32) : Int32
+      output_data(input)
+
+      row = parse_progressive_row(input)
+      return previous_lines unless row
+
+      @data = progressive_update_data(row)
+      return previous_lines unless @data
+
+      STDERR.puts @data.inspect if options.debug?
+
+      plot = create_plot(cmd)
+      lines = output_plot_progressive(plot)
+      output_io.print "\e[#{lines}F" if lines > 0
+      lines
+    end
+
+    private def sanitize_progressive_output(previous_lines : Int32, cursor_hidden : Bool) : Nil
+      return if options.output.closed?
+
+      if previous_lines > 0
+        output_io.print "\e[#{previous_lines}E"
+      end
+      output_io.print "\e[0J"
+      output_io.print "\e[?25h" if cursor_hidden
+      output_io.flush
+    end
+
+    private def parse_progressive_row(input : String) : Array(String?)?
+      rows = CSV.parse(input, separator: options.delimiter)
+      row = rows.first?
+      return unless row
+
+      values = row.map { |value| value.as(String?) }
+      return if values.empty? || values.all?(Nil)
+
+      values
+    end
+
+    private def progressive_update_data(row : Array(String?)) : Data?
+      init_progressive_state
+
+      return if consume_progressive_header?(row)
+
+      append_progressive_row(row)
+      progressive_data
+    end
+
+    private def init_progressive_state
+      return if @progressive_initialized
+
+      @progressive_initialized = true
+      @progressive_headers = options.headers ? [] of String : nil
+      @progressive_series = [] of Array(String?)
+      @progressive_header_consumed = false
+      @progressive_row_count = 0
+    end
+
+    private def consume_progressive_header?(row : Array(String?)) : Bool
+      return false unless options.headers
+      return false if options.transpose?
+      return false if @progressive_header_consumed
+
+      @progressive_headers = row.map { |value| value || "" }
+      @progressive_header_consumed = true
+      true
+    end
+
+    private def append_progressive_row(row : Array(String?)) : Nil
+      if options.headers && options.transpose?
+        if headers = @progressive_headers
+          headers << (row[0]? || "")
+        end
+        @progressive_series << row[1..]
+      elsif options.transpose?
+        @progressive_series << row
+      else
+        append_progressive_columns(row)
+      end
+    end
+
+    private def progressive_data : Data?
+      headers = @progressive_headers
+      series = @progressive_series
+
+      if headers
+        STDERR.puts "Headers contains empty string in it.".colorize(:magenta) if headers.any?(&.empty?)
+
+        h_size = headers.size
+        s_size = series.size
+
+        if h_size > s_size
+          STDERR.puts "The number of headers is greater than the number of series.".colorize(:magenta)
+          exit 1
+        elsif h_size < s_size
+          STDERR.puts "The number of headers is less than the number of series.".colorize(:magenta)
+          exit 1
+        end
+      end
+
+      Data.new(headers, series)
+    end
+
+    private def append_progressive_columns(row : Array(String?)) : Nil
+      if row.size > @progressive_series.size
+        (@progressive_series.size...row.size).each do
+          @progressive_series << Array(String?).new(@progressive_row_count, nil)
+        end
+      end
+
+      @progressive_series.each_with_index do |series, i|
+        series << row[i]?
+      end
+
+      @progressive_row_count += 1
     end
 
     private def create_plot(cmd : String) : ::UnicodePlot::Plot
@@ -98,6 +314,22 @@ module YouPlot2
     private def output_plot(plot : ::UnicodePlot::Plot)
       ::UnicodePlot.show_plot(output_io, plot)
       output_io.puts
+    end
+
+    private def output_plot_progressive(plot : ::UnicodePlot::Plot) : Int32
+      buffer = IO::Memory.new
+      ::UnicodePlot.show_plot(buffer, plot, use_color: output_io.tty?)
+      lines = buffer.to_s.lines
+
+      lines.each do |line|
+        output_io.print line.chomp
+        output_io.print "\e[0K"
+        output_io.puts
+      end
+      output_io.print "\e[0J"
+      output_io.flush
+
+      lines.size
     end
 
     private def pass_io : IO?
