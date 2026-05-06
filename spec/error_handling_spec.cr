@@ -40,7 +40,9 @@ describe "error handling" do
     ex = expect_raises(YouPlot2::InputError) do
       YouPlot2::Command.new(["line", path]).run
     end
-    (ex.message || "").should contain(path)
+    message = ex.message || ""
+    message.should contain("failed to read")
+    message.should contain(File.basename(path))
   end
 
   it "reports plot/data shape errors without leaking low-level exceptions" do
