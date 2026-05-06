@@ -12,26 +12,15 @@ module YouPlot2
 
       # Remove blank rows
       rows.reject! { |row| row.empty? || row.all?(Nil) }
+      raise DataError.new("input contains no data rows") if rows.empty?
 
       hdrs = get_headers(rows, headers, transpose)
       series = get_series(rows, headers, transpose)
-
-      if hdrs
-        STDERR.puts "Headers contains empty string in it.".colorize(:magenta) if hdrs.any?(&.empty?)
-
-        h_size = hdrs.size
-        s_size = series.size
-
-        if h_size > s_size
-          STDERR.puts "The number of headers is greater than the number of series.".colorize(:magenta)
-          exit 1
-        elsif h_size < s_size
-          STDERR.puts "The number of headers is less than the number of series.".colorize(:magenta)
-          exit 1
-        end
-      end
+      validate_headers(hdrs, series)
 
       Data.new(hdrs, series)
+    rescue ex : CSV::Error
+      raise DataError.new("failed to parse delimited input: #{ex.message}", cause: ex)
     end
 
     # Transpose arrays of (possibly) different sizes
@@ -66,6 +55,21 @@ module YouPlot2
         rows.map { |row| row[1..].map { |v| v.as(String?) } }
       else
         transpose2(rows[1..])
+      end
+    end
+
+    private def validate_headers(headers : Array(String)?, series : Array(Array(String?))) : Nil
+      return unless headers
+
+      STDERR.puts "Headers contains empty string in it.".colorize(:magenta) if headers.any?(&.empty?)
+
+      h_size = headers.size
+      s_size = series.size
+
+      if h_size > s_size
+        raise DataError.new("the number of headers is greater than the number of data series (headers: #{h_size}, series: #{s_size})")
+      elsif h_size < s_size
+        raise DataError.new("the number of headers is less than the number of data series (headers: #{h_size}, series: #{s_size})")
       end
     end
   end

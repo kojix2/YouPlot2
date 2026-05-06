@@ -47,12 +47,8 @@ module YouPlot2
         process_input(STDIN.gets_to_end, cmd)
       else
         input_files.each do |path|
-          begin
-            content = File.read(path)
-            process_input(content, cmd)
-          rescue ex : File::NotFoundError
-            STDERR.puts ex.message
-          end
+          content = read_input_file(path)
+          process_input(content, cmd)
         end
       end
     ensure
@@ -74,8 +70,7 @@ module YouPlot2
       cursor_hidden = false
 
       if options.output_path
-        STDERR.puts "YouPlot2: In progressive mode, output to a file is not possible."
-        exit 1
+        raise UsageError.new("progressive mode cannot write plots to --output FILE")
       end
 
       exit_reason = nil.as(Process::ExitReason?)
@@ -109,13 +104,11 @@ module YouPlot2
       input_files.each do |path|
         break if stop.call
 
-        begin
-          File.open(path) do |file|
-            previous_lines = read_progressive_io(file, cmd, previous_lines, stop)
-          end
-        rescue ex : File::NotFoundError
-          STDERR.puts ex.message
+        File.open(path) do |file|
+          previous_lines = read_progressive_io(file, cmd, previous_lines, stop)
         end
+      rescue ex : File::Error
+        raise InputError.new("failed to read #{path.inspect}: #{ex.message}", cause: ex)
       end
 
       previous_lines
@@ -131,8 +124,8 @@ module YouPlot2
 
       previous_lines
     rescue ex : IO::Error
-      raise ex unless stop.call
-      previous_lines
+      return previous_lines if stop.call
+      raise InputError.new("failed while reading progressive input: #{ex.message}", cause: ex)
     ensure
       @progressive_current_input = nil
     end
@@ -194,6 +187,8 @@ module YouPlot2
       return if values.empty? || values.all?(Nil)
 
       values
+    rescue ex : CSV::Error
+      raise DataError.new("failed to parse progressive input row: #{ex.message}", cause: ex)
     end
 
     private def progressive_update_data(row : Array(String?)) : Data?
@@ -249,11 +244,9 @@ module YouPlot2
         s_size = series.size
 
         if h_size > s_size
-          STDERR.puts "The number of headers is greater than the number of series.".colorize(:magenta)
-          exit 1
+          raise DataError.new("the number of headers is greater than the number of data series (headers: #{h_size}, series: #{s_size})")
         elsif h_size < s_size
-          STDERR.puts "The number of headers is less than the number of series.".colorize(:magenta)
-          exit 1
+          raise DataError.new("the number of headers is less than the number of data series (headers: #{h_size}, series: #{s_size})")
         end
       end
 
@@ -293,7 +286,7 @@ module YouPlot2
       when "box", "boxplot"
         Backends::UnicodePlot.boxplot(data!, params)
       else
-        raise ArgumentError.new("Unrecognized command: #{cmd}")
+        raise UsageError.new("unrecognized command '#{cmd}'")
       end
     end
 
@@ -302,7 +295,13 @@ module YouPlot2
     end
 
     private def data! : Data
-      @data || raise "No data loaded"
+      @data || raise DataError.new("no data loaded")
+    end
+
+    private def read_input_file(path : String) : String
+      File.read(path)
+    rescue ex : File::Error
+      raise InputError.new("failed to read #{path.inspect}: #{ex.message}", cause: ex)
     end
 
     private def output_data(input : String)
@@ -338,18 +337,24 @@ module YouPlot2
       end
 
       if path = options.pass_path
-        options.pass = File.open(path, "w")
+        options.pass = open_output_file(path, "--pass")
       end
     end
 
     private def output_io : IO
       if options.output.object_id == STDERR.object_id
         if path = options.output_path
-          options.output = File.open(path, "w")
+          options.output = open_output_file(path, "--output")
         end
       end
 
       options.output
+    end
+
+    private def open_output_file(path : String, option : String) : IO
+      File.open(path, "w")
+    rescue ex : File::Error
+      raise InputError.new("failed to open #{path.inspect} from #{option}: #{ex.message}", cause: ex)
     end
 
     private def finalize_streams

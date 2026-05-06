@@ -16,6 +16,7 @@ module YouPlot2
         series = data.series
 
         if count
+          require_series(data, 1, "count")
           series = Processing.count_values(series[0], reverse: reverse)
           params.title ||= headers[0] if headers
         end
@@ -58,8 +59,10 @@ module YouPlot2
       def histogram(data : Data, params : Parameters) : ::UnicodePlot::Plot
         headers = data.headers
         series = data.series
+        require_series(data, 1, "histogram")
         params.title ||= headers[0] if headers
         values = series[0].map { |v| to_f64_or_zero(v) }
+        require_values(values, "histogram")
 
         if symbol = symbol_chars(params.symbol)
           ::UnicodePlot.histogram(
@@ -130,6 +133,7 @@ module YouPlot2
       def boxplot(data : Data, params : Parameters) : ::UnicodePlot::Plot
         headers = data.headers
         series = data.series
+        require_series(data, 1, "boxplot")
         names = headers || (1..series.size).map(&.to_s)
         float_series = series.map { |ser| ser.map { |v| to_f64_or_zero(v) } }
 
@@ -201,23 +205,28 @@ module YouPlot2
                                    headers : Array(String)?,
                                    fmt : String?,
                                    params : Parameters) : {Array(String), Array(Float64)}
+        validate_yx_format(fmt, "barplot")
         if series.size == 1
           params.title ||= headers[0] if headers
           labels = (1..series[0].size).map(&.to_s)
           values = series[0].map { |v| to_f64_or_zero(v) }
         else
+          require_series_count(series, 2, "barplot")
           x_col, y_col = fmt == "yx" ? {1, 0} : {0, 1}
           params.title ||= headers[y_col] if headers
           labels = series[x_col].map { |v| v || "" }
           values = series[y_col].map { |v| to_f64_or_zero(v) }
         end
+        require_values(values, "barplot")
         {labels, values}
       end
 
       private def line_single(data : Data, params : Parameters) : ::UnicodePlot::Plot
         headers = data.headers
+        require_series(data, 1, "lineplot")
         params.ylabel ||= headers[0] if headers
         y = data.series[0].map { |v| to_f64_or_zero(v) }
+        require_values(y, "lineplot")
         ::UnicodePlot.lineplot(
           y,
           title: params.title || "",
@@ -239,6 +248,8 @@ module YouPlot2
 
       private def line_multi(data : Data, params : Parameters, fmt : String?) : ::UnicodePlot::Plot
         headers = data.headers
+        require_series(data, 2, "lineplot")
+        validate_yx_format(fmt, "lineplot")
         x_col, y_col = fmt == "yx" ? {1, 0} : {0, 1}
         if headers
           params.xlabel ||= headers[x_col]
@@ -246,6 +257,7 @@ module YouPlot2
         end
         x = data.series[x_col].map { |v| to_f64_or_zero(v) }
         y = data.series[y_col].map { |v| to_f64_or_zero(v) }
+        require_xy_values(x, y, "lineplot")
         xlim = params.xlim || {0.0, 0.0}
         ylim = params.ylim || {0.0, 0.0}
         call_plot(:lineplot, x, y, params, xlim, ylim, name: "")
@@ -262,7 +274,8 @@ module YouPlot2
         when "none"    then :none
         when "dotted"  then :dotted
         when nil       then default
-        else                default
+        else
+          raise UsageError.new("unknown border #{s.inspect}")
         end
       end
 
@@ -273,7 +286,9 @@ module YouPlot2
         when "ascii"   then :ascii
         when "block"   then :block
         when "density" then :density
-        else                :braille
+        when nil       then :braille
+        else
+          raise UsageError.new("unknown canvas #{s.inspect}")
         end
       end
 
@@ -285,12 +300,19 @@ module YouPlot2
         when "log2"     then :log2
         when "sqrt"     then :sqrt
         when "cbrt"     then :cbrt
-        else                 :identity
+        when nil        then :identity
+        else
+          raise UsageError.new("unknown xscale #{s.inspect}")
         end
       end
 
       private def to_closed(s : String?) : Symbol
-        s == "right" ? :right : :left
+        case s
+        when "left", nil then :left
+        when "right"     then :right
+        else
+          raise UsageError.new("unknown histogram interval side #{s.inspect}")
+        end
       end
 
       private def resolve_color(color : (String | UInt32)?, default : Symbol) : Symbol | UInt32
@@ -317,7 +339,8 @@ module YouPlot2
         when "black"   then :black
         when "auto"    then :auto
         when "normal"  then :normal
-        else                default
+        else
+          raise UsageError.new("unknown color #{s.inspect}")
         end
       end
 
@@ -331,19 +354,15 @@ module YouPlot2
       private def check_series_size(data : Data, fmt : String)
         series = data.series
         if series.size == 1
-          STDERR.puts "YouPlot2: There is only one series of input data. Please check the delimiter."
-          STDERR.puts ""
-          STDERR.puts "Headers: #{data.headers.inspect.colorize(:magenta)}"
-          STDERR.puts "The first item is: #{series[0][0].inspect.colorize(:magenta)}"
-          STDERR.puts "The last item is : #{series[0][-1].inspect.colorize(:magenta)}"
-          exit 1
+          first = series[0].first?.inspect
+          last = series[0].last?.inspect
+          raise DataError.new("only one data series was found for #{fmt.inspect} input; check the delimiter (headers: #{data.headers.inspect}, first: #{first}, last: #{last})")
+        end
+        if series.size < 2
+          raise DataError.new("#{fmt} format requires at least two data series, got #{series.size}")
         end
         if fmt == "xyxy" && series.size.odd?
-          STDERR.puts "YouPlot2: In the xyxy format, the number of series must be even."
-          STDERR.puts ""
-          STDERR.puts "Number of series: #{series.size.to_s.colorize(:magenta)}"
-          STDERR.puts "Headers: #{data.headers.inspect.colorize(:magenta)}"
-          exit 1
+          raise DataError.new("xyxy format requires an even number of data series, got #{series.size} (headers: #{data.headers.inspect})")
         end
       end
 
@@ -353,7 +372,7 @@ module YouPlot2
         when "xyy"  then plot_xyy(data, method1, params)
         when "xyxy" then plot_xyxy(data, method1, params)
         else
-          raise ArgumentError.new("Unknown format: #{fmt}")
+          raise UsageError.new("unknown format #{fmt.inspect}; expected \"xyy\" or \"xyxy\"")
         end
       end
 
@@ -369,6 +388,8 @@ module YouPlot2
 
         xlim = params.xlim || auto_lim(series[0])
         ylim = params.ylim || auto_lim(series[1..].flat_map(&.itself))
+        require_values(series[0], "#{method1} x series")
+        require_values(series[1], "#{method1} y series")
 
         plot = call_plot(method1, series[0], series[1], params, xlim, ylim,
           name: params.name || "")
@@ -392,9 +413,11 @@ module YouPlot2
 
         params.name ||= headers[0] if headers
         x1, y1 = pairs[0]
+        require_xy_values(x1, y1, "#{method1} pair 1")
         plot = call_plot(method1, x1, y1, params, xlim, ylim, name: params.name || "")
 
         pairs[1..].each_with_index do |(xi, yi), i|
+          require_xy_values(xi, yi, "#{method1} pair #{i + 2}")
           nm = headers ? headers[(i + 1) * 2] : ""
           call_plot_bang(method1, plot, xi, yi, name: nm)
         end
@@ -451,7 +474,7 @@ module YouPlot2
             labels: labels, color: color,
             xlim: xlim, ylim: ylim, name: name)
         else
-          raise ArgumentError.new("Unknown plot method: #{method1}")
+          raise PlotError.new("unknown plot method #{method1}")
         end
       end
 
@@ -467,8 +490,34 @@ module YouPlot2
         when :densityplot
           ::UnicodePlot.densityplot!(plot, x, y, name: name)
         else
-          raise ArgumentError.new("Unknown plot! method: #{method1}")
+          raise PlotError.new("unknown plot update method #{method1}")
         end
+      end
+
+      private def require_series(data : Data, count : Int32, command : String) : Nil
+        require_series_count(data.series, count, command)
+      end
+
+      private def require_series_count(series : Array(Array(String?)), count : Int32, command : String) : Nil
+        return if series.size >= count
+        raise DataError.new("#{command} requires at least #{count} data series, got #{series.size}")
+      end
+
+      private def require_values(values : Array(Float64), label : String) : Nil
+        raise DataError.new("#{label} has no data values") if values.empty?
+      end
+
+      private def require_xy_values(x : Array(Float64), y : Array(Float64), label : String) : Nil
+        require_values(x, label)
+        require_values(y, label)
+        if x.size != y.size
+          raise DataError.new("#{label} has mismatched x/y lengths (x: #{x.size}, y: #{y.size})")
+        end
+      end
+
+      private def validate_yx_format(fmt : String?, command : String) : Nil
+        return if fmt.nil? || fmt == "xy" || fmt == "yx" || fmt == "xyy"
+        raise UsageError.new("#{command} format must be \"xy\" or \"yx\", got #{fmt.inspect}")
       end
     end
   end

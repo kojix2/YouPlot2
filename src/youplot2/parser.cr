@@ -25,12 +25,12 @@ module YouPlot2
       # A non-option token without a recognized sub-command is treated
       # as an unknown command to keep compatibility with previous behavior.
       if @command.nil? && (arg = @input_files.first?) && arg !~ /^-/
-        STDERR.puts "YouPlot2: unrecognized command '#{arg}'"
-        exit 1
+        raise UsageError.new("unrecognized command '#{arg}'")
       end
     rescue ex : OptionParser::Exception
-      STDERR.puts "YouPlot2: #{ex.message}"
-      exit 1
+      raise UsageError.new(ex.message || "invalid command-line option", cause: ex)
+    rescue ex : ArgumentError | IndexError
+      raise UsageError.new(ex.message || "invalid command-line option", cause: ex)
     end
 
     def show_main_help(io : IO = STDOUT)
@@ -113,7 +113,7 @@ module YouPlot2
 
       opt.on("-d", "--delimiter DELIM",
         "field delimiter (default: TAB)") do |v|
-        @options.delimiter = v[0]
+        @options.delimiter = parse_delimiter(v)
       end
 
       opt.on("-H", "--headers", "input has a header row") do
@@ -137,11 +137,11 @@ module YouPlot2
       end
 
       opt.on("-w", "--width INT", "number of characters per row") do |v|
-        @params.width = v.to_i
+        @params.width = parse_int_option("--width", v, min: 1)
       end
 
       opt.on("-h", "--height INT", "number of rows") do |v|
-        @params.height = v.to_i
+        @params.height = parse_int_option("--height", v, min: 1)
       end
 
       opt.on("-b", "--border STR", "bounding box style") do |v|
@@ -149,15 +149,15 @@ module YouPlot2
       end
 
       opt.on("-m", "--margin INT", "spaces to the left of the plot") do |v|
-        @params.margin = v.to_i
+        @params.margin = parse_int_option("--margin", v, min: 0)
       end
 
       opt.on("--padding INT", "spaces left and right of the plot") do |v|
-        @params.padding = v.to_i
+        @params.padding = parse_int_option("--padding", v, min: 0)
       end
 
       opt.on("-c", "--color VAL", "drawing color") do |v|
-        @params.color = v.match(/\A[0-9]+\z/) ? v.to_u32 : v
+        @params.color = parse_color(v)
       end
 
       opt.on("--labels", "show labels (default)") { @params.labels = true }
@@ -220,7 +220,7 @@ module YouPlot2
             @params.closed = v
           end
           on("-n", "--nbins INT", "approximate number of bins") do |v|
-            @params.nbins = v.to_i
+            @params.nbins = parse_int_option("--nbins", v, min: 1)
           end
         end
       end
@@ -319,15 +319,13 @@ module YouPlot2
 
     private def add_xlim(opt : OptionParser)
       opt.on("--xlim FLOAT,FLOAT", "x-axis range") do |v|
-        parts = v.split(",")
-        @params.xlim = {parts[0].to_f, parts[1].to_f}
+        @params.xlim = parse_range_option("--xlim", v)
       end
     end
 
     private def add_ylim(opt : OptionParser)
       opt.on("--ylim FLOAT,FLOAT", "y-axis range") do |v|
-        parts = v.split(",")
-        @params.ylim = {parts[0].to_f, parts[1].to_f}
+        @params.ylim = parse_range_option("--ylim", v)
       end
     end
 
@@ -348,6 +346,41 @@ module YouPlot2
       opt.on("--fmt STR", "xy (default) or yx") do |v|
         @options.fmt = v
       end
+    end
+
+    private def parse_delimiter(value : String) : Char
+      char = value[0]?
+      raise UsageError.new("--delimiter requires a non-empty value") unless char
+      char
+    end
+
+    private def parse_int_option(option : String, value : String, min : Int32? = nil) : Int32
+      parsed = value.to_i?
+      raise UsageError.new("#{option} must be an integer, got #{value.inspect}") unless parsed
+      if lower = min
+        raise UsageError.new("#{option} must be at least #{lower}, got #{parsed}") if parsed < lower
+      end
+      parsed
+    end
+
+    private def parse_range_option(option : String, value : String) : Tuple(Float64, Float64)
+      parts = value.split(",", remove_empty: false)
+      unless parts.size == 2
+        raise UsageError.new("#{option} must be two comma-separated numbers, got #{value.inspect}")
+      end
+
+      lower = parts[0].to_f?
+      upper = parts[1].to_f?
+      unless lower && upper
+        raise UsageError.new("#{option} must be two comma-separated numbers, got #{value.inspect}")
+      end
+      {lower, upper}
+    end
+
+    private def parse_color(value : String) : String | UInt32
+      value.matches?(/\A[0-9]+\z/) ? value.to_u32 : value
+    rescue ex : ArgumentError
+      raise UsageError.new("--color must be a color name or a 32-bit color number, got #{value.inspect}", cause: ex)
     end
   end
 end
