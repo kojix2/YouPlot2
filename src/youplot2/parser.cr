@@ -4,14 +4,14 @@
 require "../ext/option_parser"
 
 module YouPlot2
-  class Parser < OptionParser
+  class Parser
     getter command : String?
     getter input_files : Array(String)
 
     def initialize(@argv : Array(String),
                    @params : Parameters,
                    @options : Options)
-      super()
+      @opt = OptionParser.new
       @command = nil
       @input_files = [] of String
 
@@ -19,7 +19,7 @@ module YouPlot2
     end
 
     def parse
-      super(@argv)
+      @opt.parse(@argv)
       @input_files = @argv.dup if @input_files.empty?
 
       # A non-option token without a recognized sub-command is treated
@@ -64,27 +64,27 @@ module YouPlot2
       BANNER
 
     private def setup
-      self.banner = BANNER
-      self.summary_width = 23
+      @opt.banner = BANNER
+      @opt.summary_width = 23
 
-      add_common_options(self)
+      add_common_options(@opt)
       add_subcommands
 
-      on("--help", "print help") do
+      @opt.on("--help", "print help") do
         if @command
-          puts self
+          puts @opt
         else
           show_main_help
         end
         exit
       end
 
-      on("--version", "print version") do
+      @opt.on("--version", "print version") do
         puts YouPlot2::VERSION
         exit
       end
 
-      unknown_args do |args, _|
+      @opt.unknown_args do |args, _|
         @input_files = args.dup
       end
     end
@@ -187,40 +187,40 @@ module YouPlot2
 
     private def set_sub_banner(cmd : String)
       @command = cmd
-      self.banner = "\nUsage: uplot #{cmd} [options] <in.tsv>\n\nOptions for #{cmd}:\n"
+      @opt.banner = "\nUsage: uplot #{cmd} [options] <in.tsv>\n\nOptions for #{cmd}:\n"
     end
 
     private def add_barplot_commands
       ["barplot", "bar"].each do |cmd|
-        on(cmd, "draw a horizontal barplot") do
+        @opt.on(cmd, "draw a horizontal barplot") do
           set_sub_banner(cmd)
-          add_symbol(self)
-          add_fmt_yx(self)
-          add_xscale(self)
+          add_symbol(@opt)
+          add_fmt_yx(@opt)
+          add_xscale(@opt)
         end
       end
     end
 
     private def add_count_commands
       ["count", "c"].each do |cmd|
-        on(cmd, "draw a barplot based on occurrences") do
+        @opt.on(cmd, "draw a barplot based on occurrences") do
           set_sub_banner(cmd)
-          on("-r", "--reverse", "reverse order") { @options.reverse = true }
-          add_symbol(self)
-          add_xscale(self)
+          @opt.on("-r", "--reverse", "reverse order") { @options.reverse = true }
+          add_symbol(@opt)
+          add_xscale(@opt)
         end
       end
     end
 
     private def add_histogram_commands
       ["histogram", "hist"].each do |cmd|
-        on(cmd, "draw a horizontal histogram") do
+        @opt.on(cmd, "draw a horizontal histogram") do
           set_sub_banner(cmd)
-          add_symbol(self)
-          on("--closed STR", "side of intervals to close [left]") do |v|
+          add_symbol(@opt)
+          @opt.on("--closed STR", "side of intervals to close [left]") do |v|
             @params.closed = v
           end
-          on("-n", "--nbins INT", "approximate number of bins") do |v|
+          @opt.on("-n", "--nbins INT", "approximate number of bins") do |v|
             @params.nbins = parse_int_option("--nbins", v, min: 1)
           end
         end
@@ -229,70 +229,70 @@ module YouPlot2
 
     private def add_line_commands
       ["lineplot", "line", "l"].each do |cmd|
-        on(cmd, "draw a line chart") do
+        @opt.on(cmd, "draw a line chart") do
           set_sub_banner(cmd)
-          add_canvas(self)
-          add_grid(self)
-          add_fmt_yx(self)
-          add_ylim(self)
-          add_xlim(self)
+          add_canvas(@opt)
+          add_grid(@opt)
+          add_fmt_yx(@opt)
+          add_ylim(@opt)
+          add_xlim(@opt)
         end
       end
     end
 
     private def add_lines_commands
       ["lineplots", "lines", "ls"].each do |cmd|
-        on(cmd, "draw a line chart with multiple series") do
+        @opt.on(cmd, "draw a line chart with multiple series") do
           set_sub_banner(cmd)
-          add_canvas(self)
-          add_grid(self)
-          add_fmt_xyxy(self)
-          add_ylim(self)
-          add_xlim(self)
+          add_canvas(@opt)
+          add_grid(@opt)
+          add_fmt_xyxy(@opt)
+          add_ylim(@opt)
+          add_xlim(@opt)
         end
       end
     end
 
     private def add_scatter_commands
       ["scatter", "s"].each do |cmd|
-        on(cmd, "draw a scatter plot") do
+        @opt.on(cmd, "draw a scatter plot") do
           set_sub_banner(cmd)
-          add_canvas(self)
-          add_grid(self)
-          add_fmt_xyxy(self)
-          add_ylim(self)
-          add_xlim(self)
+          add_canvas(@opt)
+          add_grid(@opt)
+          add_fmt_xyxy(@opt)
+          add_ylim(@opt)
+          add_xlim(@opt)
         end
       end
     end
 
     private def add_density_commands
       ["density", "d"].each do |cmd|
-        on(cmd, "draw a density plot") do
+        @opt.on(cmd, "draw a density plot") do
           set_sub_banner(cmd)
-          add_canvas(self)
-          add_grid(self)
-          add_fmt_xyxy(self)
-          add_ylim(self)
-          add_xlim(self)
+          add_canvas(@opt)
+          add_grid(@opt)
+          add_fmt_xyxy(@opt)
+          add_ylim(@opt)
+          add_xlim(@opt)
         end
       end
     end
 
     private def add_boxplot_commands
       ["boxplot", "box"].each do |cmd|
-        on(cmd, "draw a horizontal boxplot") do
+        @opt.on(cmd, "draw a horizontal boxplot") do
           set_sub_banner(cmd)
-          add_xlim(self)
+          add_xlim(@opt)
         end
       end
     end
 
     private def add_colors_commands
       ["colors", "color", "colours", "colour"].each do |cmd|
-        on(cmd, "show the list of available colors") do
+        @opt.on(cmd, "show the list of available colors") do
           set_sub_banner(cmd)
-          on("-n", "--names", "show color names only") do
+          @opt.on("-n", "--names", "show color names only") do
             @options.color_names = true
           end
         end
