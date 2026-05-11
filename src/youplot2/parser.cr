@@ -60,7 +60,7 @@ module YouPlot2
       General options:
           --help                   print command specific help menu
           --version                print the version of YouPlot2
-      
+      \n
       BANNER
 
     private def setup
