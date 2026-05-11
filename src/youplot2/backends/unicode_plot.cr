@@ -328,20 +328,13 @@ module YouPlot2
       end
 
       private def to_color_sym(s : String, default : Symbol) : Symbol
-        case s
-        when "green"   then :green
-        when "blue"    then :blue
-        when "red"     then :red
-        when "yellow"  then :yellow
-        when "cyan"    then :cyan
-        when "magenta" then :magenta
-        when "white"   then :white
-        when "black"   then :black
-        when "auto"    then :auto
-        when "normal"  then :normal
-        else
-          raise UsageError.new("unknown color #{s.inspect}")
+        return :auto if s == "auto"
+        return :normal if s == "normal"
+        if color = ::UnicodePlot::NAMED_COLORS.keys.find { |name| name.to_s == s }
+          return color
         end
+
+        raise UsageError.new("unknown color #{s.inspect}")
       end
 
       private def symbol_chars(sym : String?) : Array(Char)?
