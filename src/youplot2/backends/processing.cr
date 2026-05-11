@@ -12,9 +12,9 @@ module YouPlot2
         tally = Hash(String, Int32).new(0)
         arr.each { |v| tally[v || ""] += 1 }
 
-        sorted = tally.to_a.sort do |a, b|
-          r = b[1] <=> a[1]
-          r == 0 ? natural_compare(a[0], b[0]) : r
+        sorted = tally.to_a.sort do |left_entry, right_entry|
+          r = right_entry[1] <=> left_entry[1]
+          r == 0 ? natural_compare(left_entry[0], right_entry[0]) : r
         end
         sorted.reverse! if reverse
 

@@ -135,7 +135,7 @@ module YouPlot2
         series = data.series
         require_series(data, 1, "boxplot")
         names = headers || (1..series.size).map(&.to_s)
-        float_series = series.map { |ser| ser.map { |v| to_f64_or_zero(v) } }
+        float_series = series.map { |col| col.map { |v| to_f64_or_zero(v) } }
 
         ::UnicodePlot.boxplot(
           names, float_series,
@@ -379,7 +379,7 @@ module YouPlot2
       private def plot_xyy(data : Data, method1 : Symbol,
                            params : Parameters) : ::UnicodePlot::Plot
         headers = data.headers
-        series = data.series.map { |ser| ser.map { |v| to_f64_or_zero(v) } }
+        series = data.series.map { |col| col.map { |v| to_f64_or_zero(v) } }
 
         if headers
           params.name ||= headers[1]
@@ -405,7 +405,7 @@ module YouPlot2
       private def plot_xyxy(data : Data, method1 : Symbol,
                             params : Parameters) : ::UnicodePlot::Plot
         headers = data.headers
-        float_series = data.series.map { |ser| ser.map { |v| to_f64_or_zero(v) } }
+        float_series = data.series.map { |col| col.map { |v| to_f64_or_zero(v) } }
         pairs = float_series.each_slice(2).to_a
 
         xlim = params.xlim || auto_lim(pairs.flat_map(&.first))
