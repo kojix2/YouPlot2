@@ -1,0 +1,41 @@
+name: guide
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "guide/**"
+      - ".github/workflows/guide.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Nicolino
+        run: |
+          curl -fsSL https://nicolino.ralsina.me/install.sh | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          nicolino --version
+
+      - name: Build manual
+        working-directory: guide
+        run: nicolino build -B -p
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: guide/output
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

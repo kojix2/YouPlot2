@@ -1,4 +1,8 @@
-/docs/
+/guide/output/
+/guide/.croupier
+/guide/.kvstore/
+/guide/themes/default/
+/guide/.nicolino.lock
 /lib/
 /bin/
 /.shards/
